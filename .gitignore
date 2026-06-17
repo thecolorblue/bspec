@@ -3,3 +3,7 @@
 dist
 
 node_modules
+
+# Demo / scratch artifacts from the manual demo script
+.tmp
+demo-app

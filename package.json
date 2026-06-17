@@ -1,0 +1,25 @@
+{
+  "name": "bspec",
+  "version": "0.0.0",
+  "description": "bspec v0 — block creation and cache reuse proof",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "bspec": "src/cli.ts"
+  },
+  "scripts": {
+    "bspec": "bun run src/cli.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build:bin": "bun build ./src/cli.ts --outfile ./dist/bspec --compile"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "tar": "^7.4.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.5.0"
+  }
+}

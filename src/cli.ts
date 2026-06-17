@@ -1,0 +1,74 @@
+#!/usr/bin/env bun
+import { Command } from "commander";
+import { blocksAdd } from "./commands/blocks-add.ts";
+import { blocksList } from "./commands/blocks-list.ts";
+import { blocksTest } from "./commands/blocks-test.ts";
+import { build } from "./commands/build.ts";
+import { cacheLs } from "./commands/cache-ls.ts";
+import { cacheVerify } from "./commands/cache-verify.ts";
+import { preview } from "./commands/preview.ts";
+import { BspecError } from "./lib/errors.ts";
+
+const program = new Command();
+
+program
+  .name("bspec")
+  .description("bspec v0 — block creation and cache reuse proof");
+
+const blocks = program.command("blocks").description("Manage blocks");
+
+blocks
+  .command("add <folder>")
+  .description("Create a single executable block from every file under <folder>")
+  .requiredOption("--summary <summary>", "One-line summary of the block")
+  .option("--id <id>", "Block id (defaults to slugified folder name)")
+  .option("--version <version>", "Block version (defaults to 0.1.0)")
+  .action((folder, opts) =>
+    blocksAdd(folder, { summary: opts.summary, id: opts.id, version: opts.version }),
+  );
+
+blocks
+  .command("list")
+  .description("List locally available blocks")
+  .action(() => blocksList());
+
+blocks
+  .command("test <id>")
+  .description("Run a block's own self-test")
+  .action((id) => blocksTest(id));
+
+program
+  .command("build")
+  .description("Build the app described by <project>/.bspec/plan.json into dist/")
+  .option("--project <dir>", "Project directory (defaults to cwd)")
+  .action((opts) => build({ project: opts.project }));
+
+const cache = program.command("cache").description("Inspect the output cache");
+
+cache
+  .command("ls")
+  .description("List cached outputs")
+  .action(() => cacheLs());
+
+cache
+  .command("verify")
+  .description("Verify cache records still contain their archived outputs and metadata")
+  .action(() => cacheVerify());
+
+program
+  .command("preview")
+  .description("Show the path to dist/ and list produced files")
+  .option("--project <dir>", "Project directory (defaults to cwd)")
+  .option("--open", "Open the dist/ folder (macOS only)")
+  .action((opts) => preview({ project: opts.project, open: opts.open }));
+
+program
+  .parseAsync(process.argv)
+  .catch((err: unknown) => {
+    if (err instanceof BspecError) {
+      process.stderr.write(err.message + "\n");
+    } else {
+      process.stderr.write(String((err as Error)?.stack ?? err) + "\n");
+    }
+    process.exit(1);
+  });

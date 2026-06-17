@@ -1,0 +1,12 @@
+{
+  "spec_hash": "manual-v0",
+  "steps": [
+    {
+      "id": "chrome-extension-template",
+      "version": "0.1.0",
+      "summary": "Building chrome extension template",
+      "params": {},
+      "needs": []
+    }
+  ]
+}
