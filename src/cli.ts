@@ -7,13 +7,15 @@ import { build } from "./commands/build.ts";
 import { cacheLs } from "./commands/cache-ls.ts";
 import { cacheVerify } from "./commands/cache-verify.ts";
 import { preview } from "./commands/preview.ts";
+import { plan } from "./commands/plan.ts";
+import { configGet, configModels, configSetAgent } from "./commands/config.ts";
 import { BspecError } from "./lib/errors.ts";
 
 const program = new Command();
 
 program
   .name("bspec")
-  .description("bspec v0 — block creation and cache reuse proof");
+  .description("bspec — a step-caching app harness");
 
 const blocks = program.command("blocks").description("Manage blocks");
 
@@ -36,6 +38,22 @@ blocks
   .command("test <id>")
   .description("Run a block's own self-test")
   .action((id) => blocksTest(id));
+
+program
+  .command("plan")
+  .description("Plan an app from <project>/SPEC.md by picking installed blocks (uses Pi)")
+  .option("--project <dir>", "Project directory (defaults to cwd)")
+  .option("--agent <selector>", "Model selector for this run (e.g. anthropic/claude-opus-4-5)")
+  .option("--yes", "Skip the approval prompt and write the plan")
+  .option("--answers <file>", "JSON array of { id, answer } to resolve clarifying questions")
+  .action((opts) =>
+    plan({
+      project: opts.project,
+      agent: opts.agent,
+      yes: opts.yes,
+      answers: opts.answers,
+    }),
+  );
 
 program
   .command("build")
@@ -61,6 +79,23 @@ program
   .option("--project <dir>", "Project directory (defaults to cwd)")
   .option("--open", "Open the dist/ folder (macOS only)")
   .action((opts) => preview({ project: opts.project, open: opts.open }));
+
+const config = program.command("config").description("Inspect and set bspec configuration");
+
+config
+  .command("get")
+  .description("Show the resolved planner model and where it came from")
+  .action(() => configGet());
+
+config
+  .command("set-agent <selector>")
+  .description("Set the planner model (e.g. anthropic/claude-opus-4-5)")
+  .action((selector) => configSetAgent(selector));
+
+config
+  .command("models [search]")
+  .description("List Pi-available models you can pass to set-agent")
+  .action((search) => configModels(search));
 
 program
   .parseAsync(process.argv)

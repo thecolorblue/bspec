@@ -1,0 +1,34 @@
+{
+  "spec_hash": "4b0599d02932a91941b58fb1155b458b512e264dd9847ac8431ed1dd9bf03c24",
+  "steps": [
+    {
+      "id": "greeting-page",
+      "version": "1.0.0",
+      "summary": "Creating landing page with Tab Saver heading and welcome message",
+      "params": {
+        "title": "Tab Saver",
+        "message": "Welcome! Tab Saver helps you organize and restore your browser tabs effortlessly."
+      },
+      "needs": []
+    }
+  ],
+  "gaps": [
+    {
+      "feature": "Sign in so visitors can be greeted by name",
+      "reason": "No authentication or user sign-in block is available in the menu"
+    },
+    {
+      "feature": "Contact Us page with a form",
+      "reason": "No contact page or form block is available in the menu"
+    },
+    {
+      "feature": "Blog page",
+      "reason": "No blog or multi-page block is available in the menu"
+    }
+  ],
+  "planner": {
+    "agent": "anthropic/claude-opus-4-5",
+    "pi_version": "0.76.0",
+    "planned_at": "2026-06-18T19:59:20.075Z"
+  }
+}
