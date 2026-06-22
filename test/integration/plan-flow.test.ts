@@ -143,7 +143,7 @@ test("gaps are surfaced in the review and recorded in plan.json", async () => {
   const planner = new FakePlanner(withGap, PROVENANCE);
 
   const out = await capture(() => plan({ project, home, planner, yes: true }));
-  expect(out).toContain("Not covered by any block");
+  expect(out).toContain("Not covered by an installed block");
   expect(out).toContain("a login screen");
 
   const written = await readPlan();
@@ -247,18 +247,19 @@ test("end to end: plan → build [ran] → build [replayed] → preview lists fi
   expect(out).toContain("index.html");
 });
 
-test("a planned plan.json with gaps/planner builds identically to a v0 plan", async () => {
+test("non-interactively, build leaves gaps in place and builds only the planned steps", async () => {
   const planner = new FakePlanner(
     { ...greetingPlan("Tab Saver"), gaps: [{ feature: "login", reason: "no auth block" }] },
     PROVENANCE,
   );
   await capture(() => plan({ project, home, planner, yes: true }));
 
-  // gaps + planner provenance are present, yet build ignores them.
   const written = await readPlan();
   expect(written.gaps).toBeDefined();
   expect(written.planner).toBeDefined();
 
+  // No TTY, no --yes, no injected author → build can't get approval to author,
+  // so it skips the gap and builds the one planned step deterministically.
   const out = await capture(() => build({ project, home }));
   expect(out).toContain("(0 replayed, 1 ran)");
 });

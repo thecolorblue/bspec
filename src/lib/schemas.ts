@@ -64,19 +64,39 @@ export const plannerProvenanceSchema = z.object({
 });
 export type PlannerProvenance = z.infer<typeof plannerProvenanceSchema>;
 
-export const planSchema = z.object({
-  spec_hash: z.string().optional(),
-  steps: z.array(planStepSchema).min(1, "steps must be a non-empty array"),
-  gaps: z.array(planGapSchema).default([]),
-  planner: plannerProvenanceSchema.optional(),
-});
+export const planSchema = z
+  .object({
+    spec_hash: z.string().optional(),
+    // May be empty for a greenfield plan whose work is entirely gaps (every
+    // feature needs a new block authored). `gaps` then carries the work.
+    steps: z.array(planStepSchema).default([]),
+    gaps: z.array(planGapSchema).default([]),
+    planner: plannerProvenanceSchema.optional(),
+  })
+  .superRefine((plan, ctx) => {
+    if (plan.steps.length === 0 && plan.gaps.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "a plan must have at least one step or one gap",
+        path: ["steps"],
+      });
+    }
+  });
 export type Plan = z.infer<typeof planSchema>;
+
+/** A suggested choice for a clarifying question (headless display only). */
+export const planQuestionOptionSchema = z.object({
+  label: z.string().min(1),
+  description: z.string().min(1),
+});
+export type PlanQuestionOption = z.infer<typeof planQuestionOptionSchema>;
 
 /** A clarifying question the planner asks before a plan is finalized. */
 export const planQuestionSchema = z.object({
   id: z.string().min(1),
   question: z.string().min(1),
   why: z.string().optional(),
+  options: z.array(planQuestionOptionSchema).optional(),
 });
 export type PlanQuestion = z.infer<typeof planQuestionSchema>;
 
@@ -101,6 +121,20 @@ export const plannerOutputSchema = z.object({
   questions: z.array(planQuestionSchema).default([]),
 });
 export type PlannerOutput = z.infer<typeof plannerOutputSchema>;
+
+/**
+ * What the block author returns to fill a single gap: the full source of a
+ * self-contained `.block.ts` plus the plan step that invokes it. The `step`
+ * reuses `plannerStepSchema` (summary required, `needs` empty) — an authored
+ * block is wired into the plan exactly like any picked block.
+ */
+export const blockAuthorOutputSchema = z.object({
+  block: z.object({
+    source: z.string().min(1, "block source is required"),
+  }),
+  step: plannerStepSchema,
+});
+export type BlockAuthorOutput = z.infer<typeof blockAuthorOutputSchema>;
 
 /** meta.json stored alongside a cache entry's outputs.tar.gz. */
 export const cacheMetaSchema = z.object({

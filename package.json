@@ -14,9 +14,13 @@
     "build:bin": "bun build ./src/cli.ts --outfile ./dist/bspec --compile"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.76.0",
+    "@earendil-works/pi-coding-agent": "^0.79.8",
+    "@earendil-works/pi-tui": "^0.76.0",
+    "@juicesharp/rpiv-ask-user-question": "^1.20.0",
+    "@juicesharp/rpiv-todo": "^1.20.0",
     "commander": "^12.1.0",
     "tar": "^7.4.3",
+    "typebox": "^1.1.38",
     "zod": "^3.23.8"
   },
   "devDependencies": {

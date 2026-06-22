@@ -59,7 +59,18 @@ program
   .command("build")
   .description("Build the app described by <project>/.bspec/plan.json into dist/")
   .option("--project <dir>", "Project directory (defaults to cwd)")
-  .action((opts) => build({ project: opts.project }));
+  .option("--agent <selector>", "Model selector for authoring gap blocks (e.g. anthropic/claude-opus-4-5)")
+  .option("--yes", "Author any gap blocks without the approval prompt")
+  .option("--no-author", "Build only the planned steps; never author blocks for gaps")
+  .action((opts) =>
+    build({
+      project: opts.project,
+      agent: opts.agent,
+      yes: opts.yes,
+      // commander sets `opts.author` to false when --no-author is passed.
+      noAuthor: opts.author === false,
+    }),
+  );
 
 const cache = program.command("cache").description("Inspect the output cache");
 

@@ -69,12 +69,13 @@ export async function plan(opts: PlanOptions = {}): Promise<void> {
     : "Planning from SPEC.md using Pi's default model…";
   process.stdout.write(header + "\n");
 
-  const planner =
-    opts.planner ?? new PiPlanner({ selector: resolved.selector, onInfo: writeInfo });
-
   const fileAnswers = await loadAnswers(opts.answers);
   const interactive = !opts.yes && (opts.ask !== undefined || (process.stdin.isTTY ?? false));
   const asker = makeAsker(opts.ask);
+
+  const planner =
+    opts.planner ??
+    new PiPlanner({ selector: resolved.selector, onInfo: writeInfo, interactive });
 
   try {
     const output = await runPlanRounds({
@@ -199,6 +200,9 @@ function printQuestions(output: PlannerOutput): void {
   for (const q of output.questions) {
     process.stdout.write(`  ${q.id}. ${q.question}\n`);
     if (q.why) process.stdout.write(`      (why: ${q.why})\n`);
+    for (const opt of q.options ?? []) {
+      process.stdout.write(`      - ${opt.label}: ${opt.description}\n`);
+    }
   }
 }
 
@@ -213,7 +217,9 @@ function printReview(output: PlannerOutput): void {
   });
 
   if (output.gaps.length > 0) {
-    process.stdout.write("\nNot covered by any block (would need a new block):\n");
+    process.stdout.write(
+      "\nNot covered by an installed block — bspec build will author each as a new block:\n",
+    );
     for (const gap of output.gaps) {
       process.stdout.write(`  - ${gap.feature} — ${gap.reason}\n`);
     }

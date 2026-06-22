@@ -1,10 +1,40 @@
 import { expect, test } from "bun:test";
 import {
+  blockAuthorOutputSchema,
   manifestSchema,
   paramSpecSchema,
+  planQuestionSchema,
   planSchema,
   plannerOutputSchema,
 } from "../../src/lib/schemas.ts";
+
+test("planQuestionSchema accepts optional multiple-choice options", () => {
+  const parsed = planQuestionSchema.parse({
+    id: "q1",
+    question: "Which framework?",
+    options: [
+      { label: "SwiftUI", description: "Modern declarative UI" },
+      { label: "AppKit", description: "Mature, imperative" },
+    ],
+  });
+  expect(parsed.options).toHaveLength(2);
+  expect(parsed.options?.[0].label).toBe("SwiftUI");
+});
+
+test("planQuestionSchema still accepts a bare question without options", () => {
+  const parsed = planQuestionSchema.parse({ id: "q1", question: "What OS?" });
+  expect(parsed.options).toBeUndefined();
+});
+
+test("planQuestionSchema rejects an option missing its description", () => {
+  expect(
+    planQuestionSchema.safeParse({
+      id: "q1",
+      question: "Which?",
+      options: [{ label: "only-label" }],
+    }).success,
+  ).toBe(false);
+});
 
 test("paramSpecSchema accepts scalar types and defaults required to false", () => {
   const parsed = paramSpecSchema.parse({ type: "string" });
@@ -83,6 +113,47 @@ test("planSchema still accepts a handwritten v0 plan and defaults gaps", () => {
   });
   expect(plan.gaps).toEqual([]);
   expect(plan.planner).toBeUndefined();
+});
+
+test("blockAuthorOutputSchema accepts a source plus an invoking step", () => {
+  const out = blockAuthorOutputSchema.parse({
+    block: { source: "#!/usr/bin/env bun\n// ...\n" },
+    step: { id: "contact-page", version: "1.0.0", summary: "Adding contact page", params: {} },
+  });
+  expect(out.block.source).toContain("bun");
+  expect(out.step.id).toBe("contact-page");
+  expect(out.step.needs).toEqual([]);
+});
+
+test("blockAuthorOutputSchema rejects empty source", () => {
+  const result = blockAuthorOutputSchema.safeParse({
+    block: { source: "" },
+    step: { id: "x", version: "1.0.0", summary: "s", params: {} },
+  });
+  expect(result.success).toBe(false);
+});
+
+test("blockAuthorOutputSchema rejects a step with non-empty needs (v1 is linear)", () => {
+  const result = blockAuthorOutputSchema.safeParse({
+    block: { source: "x" },
+    step: { id: "x", version: "1.0.0", summary: "s", params: {}, needs: ["a"] },
+  });
+  expect(result.success).toBe(false);
+});
+
+test("planSchema accepts a greenfield plan with no steps when gaps carry the work", () => {
+  const plan = planSchema.parse({
+    spec_hash: "greenfield",
+    steps: [],
+    gaps: [{ feature: "the whole app scaffold", reason: "no block provides it" }],
+  });
+  expect(plan.steps).toEqual([]);
+  expect(plan.gaps).toHaveLength(1);
+});
+
+test("planSchema rejects a plan with neither steps nor gaps", () => {
+  const result = planSchema.safeParse({ steps: [], gaps: [] });
+  expect(result.success).toBe(false);
 });
 
 test("planSchema accepts planner provenance and gaps", () => {

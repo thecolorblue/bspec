@@ -1,6 +1,9 @@
 import { parseSelector, type ThinkingLevel } from "./agent.ts";
+import { loadAskUserQuestionTool } from "./ask-extension.ts";
+import { pickDefaultModel } from "./default-model.ts";
 import { BspecError } from "./errors.ts";
 import { loadPi, type PiModule } from "./pi.ts";
+import { createPlannerUiHost } from "./pi-ui-host.ts";
 import { validateRawOutput } from "./plan-validate.ts";
 import {
   PlannerError,
@@ -18,13 +21,33 @@ Rules:
 - Select only blocks that appear in the provided menu. Never invent a block "id" or "version"; copy them verbatim from the menu and pin versions exactly.
 - Fill each chosen block's "params" according to that block's parameter schema: include every "required" param, respect each param's "type" and "enum", and omit any param the block does not declare.
 - Order steps sensibly (scaffolding before features). Set "needs" to [] for every step.
-- If a spec feature matches no block in the menu, list it under "gaps" — do NOT approximate it with an unrelated block.
+- For functionality the menu does NOT cover, do not approximate it with an unrelated block, and do not emit one large catch-all gap for the whole app. Instead decompose the uncovered scope into several SMALL, single-block gaps. Each gap must describe exactly one self-contained block — a scaffold, a data/service layer, a single view or screen, a cache, etc. — small enough that a smaller model can write and self-test it on its own. List gaps in build order (scaffolding before the features that depend on it).
 - If choosing a block or a parameter value would require a guess, ask under "questions" instead of guessing.
 - Output ONLY a single JSON object with this shape, and nothing else (no prose, no code fences):
 {
   "steps": [ { "id": "<menu id>", "version": "<menu version>", "summary": "<plain-English progress phrase>", "params": { }, "needs": [] } ],
-  "gaps": [ { "feature": "<unmet wish>", "reason": "<why no block fits>" } ],
+  "gaps": [ { "feature": "<the single block to build>", "reason": "<what the menu is missing>" } ],
   "questions": [ { "id": "q1", "question": "<what you need to know>", "why": "<why it's ambiguous>" } ]
+}`;
+
+/**
+ * Interactive variant: instead of returning a `questions` array for bspec to ask
+ * later, the model resolves ambiguity live via the `ask_user_question` tool, then
+ * emits the final plan in the same session.
+ */
+const PLANNER_SYSTEM_PROMPT_INTERACTIVE = `You are bspec's planner. Your only job is to turn a SPEC.md into a plan that selects from a fixed menu of prebuilt blocks. You are a picker, not a builder: you never write files, never run code, and only return plan data.
+
+Rules:
+- Select only blocks that appear in the provided menu. Never invent a block "id" or "version"; copy them verbatim from the menu and pin versions exactly.
+- Fill each chosen block's "params" according to that block's parameter schema: include every "required" param, respect each param's "type" and "enum", and omit any param the block does not declare.
+- Order steps sensibly (scaffolding before features). Set "needs" to [] for every step.
+- For functionality the menu does NOT cover, do not approximate it with an unrelated block, and do not emit one large catch-all gap for the whole app. Instead decompose the uncovered scope into several SMALL, single-block gaps. Each gap must describe exactly one self-contained block — a scaffold, a data/service layer, a single view or screen, a cache, etc. — small enough that a smaller model can write and self-test it on its own. List gaps in build order (scaffolding before the features that depend on it).
+- When choosing a block or a parameter value would require a guess, call the ask_user_question tool with 2-4 concise options before deciding. Group all clarifying questions into a single tool call. The user may also type a custom answer. Do NOT emit a "questions" array — ask via the tool instead.
+- After any questions are answered, output ONLY a single JSON object with this shape, and nothing else (no prose, no code fences):
+{
+  "steps": [ { "id": "<menu id>", "version": "<menu version>", "summary": "<plain-English progress phrase>", "params": { }, "needs": [] } ],
+  "gaps": [ { "feature": "<the single block to build>", "reason": "<what the menu is missing>" } ],
+  "questions": []
 }`;
 
 /** Minimal shape we read off Pi's message history to recover the final answer. */
@@ -44,6 +67,12 @@ export interface PiPlannerOptions {
   maxRepairs?: number;
   /** Optional progress sink (e.g. to announce the chosen default model). */
   onInfo?: (message: string) => void;
+  /**
+   * When true (and a TTY is available), the planner asks clarifying questions
+   * in-session via the rpiv `ask_user_question` dialog instead of returning a
+   * `questions` array for bspec to render headlessly.
+   */
+  interactive?: boolean;
 }
 
 /**
@@ -78,8 +107,19 @@ export class PiPlanner implements Planner {
 
     const { model, thinkingLevel } = this.resolveModel(pi, modelRegistry);
 
+    // Ask in-session via the rpiv dialog only when explicitly interactive AND a
+    // real TTY is present; otherwise stay fully headless (questions array path).
+    const useDialog =
+      (this.opts.interactive ?? false) &&
+      Boolean(process.stdin.isTTY) &&
+      Boolean(process.stdout.isTTY);
+    const askTool = useDialog ? await loadAskUserQuestionTool() : undefined;
+    const uiHost = useDialog ? await createPlannerUiHost() : undefined;
+
     // Isolate planning from the user's global Pi setup: no ambient context
-    // files, extensions, skills, prompts, or themes — just our system prompt.
+    // files, skills, prompts, or themes — just our system prompt. In dialog mode
+    // we inject only the rpiv extension's tool (via customTools), keeping the
+    // user's own extensions off and all built-in tools disabled.
     const loader = new pi.DefaultResourceLoader({
       cwd: process.cwd(),
       agentDir: pi.getAgentDir(),
@@ -88,7 +128,8 @@ export class PiPlanner implements Planner {
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      systemPromptOverride: () => PLANNER_SYSTEM_PROMPT,
+      systemPromptOverride: () =>
+        useDialog ? PLANNER_SYSTEM_PROMPT_INTERACTIVE : PLANNER_SYSTEM_PROMPT,
       appendSystemPromptOverride: () => [],
     });
     await loader.reload();
@@ -96,13 +137,21 @@ export class PiPlanner implements Planner {
     const { session } = await pi.createAgentSession({
       model,
       thinkingLevel,
-      noTools: "all",
+      // An explicit `tools` allowlist already disables the built-in read/bash/
+      // edit/write tools, so only ask_user_question is active in dialog mode.
+      ...(askTool
+        ? { tools: ["ask_user_question"], customTools: [askTool] }
+        : { noTools: "all" as const }),
       authStorage,
       modelRegistry,
       resourceLoader: loader,
       sessionManager: pi.SessionManager.inMemory(),
       settingsManager: pi.SettingsManager.inMemory({ compaction: { enabled: false } }),
     });
+
+    if (uiHost) {
+      await session.bindExtensions({ uiContext: uiHost.uiContext });
+    }
 
     try {
       let prompt = renderUserPrompt(input);
@@ -121,6 +170,7 @@ export class PiPlanner implements Planner {
       );
     } finally {
       session.dispose();
+      uiHost?.dispose();
     }
   }
 
@@ -132,10 +182,10 @@ export class PiPlanner implements Planner {
     const available = registry.getAvailable();
 
     if (!this.opts.selector) {
-      if (available.length === 0) {
+      const model = pickDefaultModel(available);
+      if (!model) {
         throw new BspecError(NO_MODEL_MESSAGE);
       }
-      const model = available[0];
       this.chosenAgent = `${model.provider}/${model.id}`;
       this.opts.onInfo?.(`No model configured; using ${this.chosenAgent}.`);
       return { model, thinkingLevel: "off" };
