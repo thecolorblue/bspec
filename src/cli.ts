@@ -6,6 +6,7 @@ import { blocksTest } from "./commands/blocks-test.ts";
 import { build } from "./commands/build.ts";
 import { cacheLs } from "./commands/cache-ls.ts";
 import { cacheVerify } from "./commands/cache-verify.ts";
+import { fix } from "./commands/fix.ts";
 import { preview } from "./commands/preview.ts";
 import { plan } from "./commands/plan.ts";
 import { configGet, configModels, configSetAgent } from "./commands/config.ts";
@@ -69,6 +70,28 @@ program
       yes: opts.yes,
       // commander sets `opts.author` to false when --no-author is passed.
       noAuthor: opts.author === false,
+    }),
+  );
+
+program
+  .command("fix")
+  .description("Drive a project's build and test commands to green by letting Pi edit files (uses Pi)")
+  .option("--project <dir>", "Project directory (defaults to cwd)")
+  .option("--build-cmd <cmd>", "Override the build command from .bspec/fix.json")
+  .option("--test-cmd <cmd>", "Override the test command from .bspec/fix.json")
+  .option("--agent <selector>", "Model selector (e.g. anthropic/claude-opus-4-8)")
+  .option("--max-iters <n>", "Iteration cap", (v) => Number.parseInt(v, 10))
+  .option("--token-budget <n>", "Token ceiling", (v) => Number.parseInt(v, 10))
+  .option("--yes", "Skip the start confirmation (unattended)")
+  .action((opts) =>
+    fix({
+      project: opts.project,
+      buildCmd: opts.buildCmd,
+      testCmd: opts.testCmd,
+      agent: opts.agent,
+      maxIters: opts.maxIters,
+      tokenBudget: opts.tokenBudget,
+      yes: opts.yes,
     }),
   );
 

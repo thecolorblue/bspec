@@ -192,7 +192,7 @@ c3d4   popup-button                   1.0.0    fresh      ← new "Keep" build
 
 **Change & repair (non-technical front door)**
 - `bspec change "<plain English>"` — re-plan the affected block(s) and rebuild just those.
-- `bspec fix "<symptom>"` — symptom-driven diagnosis (see §5).
+- `bspec fix "<symptom>"` — symptom-driven diagnosis (see §5). *(Distinct from the implemented generic build/test repair loop — see §7.)*
 - `bspec undo` / `bspec snapshot <label>` / `bspec restore <label>` — checkpoints.
 - `bspec diff` — what changed between builds, in plain language.
 - `bspec explain [<file|block>]` — what this does, in plain language.
@@ -267,3 +267,82 @@ The payoff of dropping AI from the build: the bug surface is tiny and predictabl
 2. **v1** — planner AI (SPEC → plan) + `bspec plan` with plain-English review and clarifying questions + provenance (`build.json`).
 3. **v2** — non-technical layer: `init` interview, `change`, `fix`, `undo`/snapshots, `report`, drift detection.
 4. **v3** — dependency-graph rebuilds (parallel independent blocks), registry remotes (`blocks publish/pull`), shared-block versioning policy.
+
+---
+
+## 7. `bspec fix` — self-correcting fix-until-green loop
+
+> The implemented, **generic** repair loop: `bspec fix --project <dir>` drives *any* project's own
+> build and test commands to a clean exit by letting Pi edit files, under a deterministic controller
+> that owns the stop condition. It is distinct from the v2 non-technical `change`/`fix "<symptom>"`
+> front-door (§5) and does not touch bspec's blocks, plans, or cache.
+
+Unlike planning — where the AI is a *picker* — here Pi runs as a **tool-enabled** agent bound to the
+project directory, editing files with `read`/`edit`/`write` (shell is off by default, so it cannot
+run, let alone spoof, the gate). The model never decides "done": the harness runs the gate and reads
+exit codes.
+
+### The loop
+
+1. **Sequence the gates.** Drive the **build** command to exit 0 first; only then is the **test**
+   command in scope. Each iteration re-runs the build, so a test-phase edit that breaks it is caught
+   and repaired before tests resume.
+2. **Detect stalls, escalate strategy.** A normalized signature of the current failure feeds a
+   stuck-detector (same failure repeated, or an A,B,A,B ping-pong). On a stall the loop climbs a
+   ladder — force-diagnose → minimal-fix → fresh-start (restore the last green build) → switch model —
+   instead of re-running an identical attempt. Past the ladder it escalates to a human.
+3. **Guard the tests (anti-reward-hacking).** After every iteration a diff-guard compares a content
+   hash of the working tree against the pre-iteration snapshot; if the edit touched any **protected**
+   file (tests, specs, runner configs), the whole iteration is **reverted** and recorded as rejected.
+   This revert — not the prompt — is the primary, unspoofable defense.
+4. **Checkpoints (files-only, never git).** The loop snapshots the working tree to
+   `.bspec/fix/snapshots/` (a tar + a hash manifest) and reverts by overwriting from it. It never
+   commits, resets, or cleans git — your branch, history, and stashes are untouched. Run in a
+   disposable checkout anyway; uncommitted work may be overwritten by a revert.
+5. **Hard budget.** An iteration cap and a token ceiling bound every run; on exhaustion the loop
+   escalates with a written handoff.
+
+State lives on disk — `.bspec/fix/ledger.json` plus a human-readable `ledger.md` (the handoff
+artifact), and per-iteration gate logs under `.bspec/fix/logs/`.
+
+### Configuration — `<project>/.bspec/fix.json`
+
+```jsonc
+{
+  "build": { "cmd": "npm run build" },   // required (or --build-cmd / SPEC.md ## Verification)
+  "test":  { "cmd": "npm test" },        // required (or --test-cmd  / SPEC.md ## Verification)
+  "protected": [                         // never editable by the fixer (default shown)
+    "**/*.test.*", "**/*.spec.*", "tests/**", "spec/**",
+    "**/conftest.py", "**/vitest.config.*", "**/jest.config.*"
+  ],
+  "maxIters": 12,                        // iteration cap
+  "tokenBudget": 2000000,                // token ceiling
+  "buildTimeoutMs": 300000,              // per build-gate run
+  "testTimeoutMs": 600000,               // per test-gate run
+  "allowShell": false,                   // true → let the agent run shell commands
+  "snapshotIgnore": [".git", "node_modules", ".bspec", ".DS_Store", "dist", ".next", "build"]
+}
+```
+
+Resolution per field: **CLI flag → `fix.json` → SPEC.md `## Verification` → built-in default.** Build
+and test commands are required (no default); their absence is a clear error. The SPEC.md fallback:
+
+```md
+## Verification
+- build: `npm run build`
+- test: `npm test`
+```
+
+### CLI
+
+```
+bspec fix [--project <dir>]
+  --build-cmd <cmd>     override fix.json build.cmd
+  --test-cmd  <cmd>     override fix.json test.cmd
+  --agent <selector>    model selector (e.g. anthropic/claude-opus-4-8)
+  --max-iters <n>       iteration cap
+  --token-budget <n>    token ceiling
+  --yes                 skip the start confirmation (unattended)
+```
+
+A sample config lives at `examples/fix.json`.
