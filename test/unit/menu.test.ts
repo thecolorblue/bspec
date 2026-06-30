@@ -30,7 +30,8 @@ afterEach(async () => {
 
 test("buildBlockMenu returns metadata for installed blocks and omits payloads", async () => {
   await capture(() =>
-    blocksAdd(FIXTURE, {
+    blocksAdd({
+      folder: FIXTURE,
       id: "hello-extension",
       version: "0.1.0",
       summary: "A minimal hello extension fixture",

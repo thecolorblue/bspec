@@ -61,15 +61,18 @@ export function isLadderExhausted(index: number): boolean {
 
 /**
  * Choose a model different from the current selector for the switch-model rung,
- * reusing the default-model preference ordering. Returns undefined when no
- * alternative exists, in which case the controller escalates rather than
- * wastefully re-running the same model.
+ * reusing the default-model preference ordering. `excluded` lists selectors the
+ * loop has already tried (including any that produced no output), so a dud model
+ * is never re-picked. Returns undefined when no untried alternative exists, in
+ * which case the controller escalates rather than wastefully re-running a model.
  */
 export function pickAlternativeModel<M extends ModelIdentity>(
   currentSelector: string | undefined,
   available: readonly M[],
+  excluded: readonly string[] = [],
 ): M | undefined {
-  const others = available.filter((m) => `${m.provider}/${m.id}` !== currentSelector);
+  const skip = new Set([currentSelector, ...excluded].filter(Boolean));
+  const others = available.filter((m) => !skip.has(`${m.provider}/${m.id}`));
   if (others.length === 0) return undefined;
   return pickDefaultModel(others);
 }

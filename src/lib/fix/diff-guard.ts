@@ -2,6 +2,8 @@ import { hashTree, type CheckpointRef, type ManifestSource } from "./checkpoint.
 import { matchesAnyGlob } from "./glob.ts";
 
 export interface DiffGuard {
+  /** All paths the working tree touched since `sinceRef` (empty = no edits). */
+  changedFiles(cwd: string, sinceRef: CheckpointRef): Promise<string[]>;
   /** Protected paths the working tree touched since `sinceRef` (empty = clean). */
   changedProtected(cwd: string, sinceRef: CheckpointRef): Promise<string[]>;
 }
@@ -47,9 +49,13 @@ export class SnapshotDiffGuard implements DiffGuard {
     private readonly protectedGlobs: readonly string[],
   ) {}
 
-  async changedProtected(cwd: string, sinceRef: CheckpointRef): Promise<string[]> {
+  async changedFiles(cwd: string, sinceRef: CheckpointRef): Promise<string[]> {
     const before = await this.source.manifestFor(sinceRef);
     const after = await hashTree(cwd, this.ignore);
-    return protectedViolations(diffManifests(before, after), this.protectedGlobs);
+    return diffManifests(before, after);
+  }
+
+  async changedProtected(cwd: string, sinceRef: CheckpointRef): Promise<string[]> {
+    return protectedViolations(await this.changedFiles(cwd, sinceRef), this.protectedGlobs);
   }
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { blockPath, blocksDir, resolveBspecHome } from "../config.ts";
 import {
@@ -15,36 +15,73 @@ export interface BlocksAddOptions {
   id?: string;
   version?: string;
   home?: string;
+  folder?: string;
+  file?: string;
 }
 
-export async function blocksAdd(
-  folder: string,
-  opts: BlocksAddOptions,
-): Promise<void> {
+export async function blocksAdd(opts: BlocksAddOptions): Promise<void> {
   const home = opts.home ?? resolveBspecHome();
-  const srcDir = resolve(folder);
-  if (!existsSync(srcDir)) {
-    throw new BspecError(`Source folder not found: ${folder}`);
-  }
   if (!opts.summary?.trim()) {
     throw new BspecError("A --summary is required to create a block.");
   }
 
-  const id = opts.id?.trim() || slugify(basename(srcDir));
+  const folderPath = opts.folder?.trim();
+  const filePath = opts.file?.trim();
+
+  if (folderPath && filePath) {
+    throw new BspecError("Provide either a folder or --file, not both.");
+  }
+
+  if (!folderPath && !filePath) {
+    throw new BspecError("A source folder or --file is required to create a block.");
+  }
+
+  let sourceLabel: string;
+  let produces: string[];
+  const files: CapturedFile[] = [];
+
+  if (filePath) {
+    const absFile = resolve(filePath);
+    if (!existsSync(absFile)) {
+      throw new BspecError(`Source file not found: ${filePath}`);
+    }
+    const stats = await stat(absFile);
+    if (!stats.isFile()) {
+      throw new BspecError(`--file must point to a file: ${filePath}`);
+    }
+    const relPath = basename(absFile);
+    files.push({ path: relPath, content: await readFile(absFile) });
+    produces = [relPath];
+    sourceLabel = basename(absFile);
+  } else {
+    const absDir = resolve(folderPath as string);
+    if (!existsSync(absDir)) {
+      throw new BspecError(`Source folder not found: ${folderPath}`);
+    }
+    const stats = await stat(absDir);
+    if (!stats.isDirectory()) {
+      throw new BspecError(`Source path is not a folder: ${folderPath}`);
+    }
+
+    const relPaths = await walk(absDir);
+    if (relPaths.length === 0) {
+      throw new BspecError(
+        `No files found under ${folderPath} (after ignoring junk).`,
+      );
+    }
+
+    for (const relPath of relPaths) {
+      files.push({ path: relPath, content: await readFile(join(absDir, relPath)) });
+    }
+    produces = relPaths;
+    sourceLabel = basename(absDir);
+  }
+
+  const id = opts.id?.trim() || slugify(sourceLabel);
   const version = opts.version?.trim() || "0.1.0";
 
-  const relPaths = await walk(srcDir);
-  if (relPaths.length === 0) {
-    throw new BspecError(`No files found under ${folder} (after ignoring junk).`);
-  }
-
-  const files: CapturedFile[] = [];
-  for (const relPath of relPaths) {
-    files.push({ path: relPath, content: await readFile(join(srcDir, relPath)) });
-  }
-
   const source = generateBlockSource(
-    { id, version, summary: opts.summary, produces: relPaths },
+    { id, version, summary: opts.summary, produces },
     files,
   );
 

@@ -22,6 +22,37 @@ test("failureSignature distinguishes phases and failure classes", () => {
   expect(build).not.toBe(other);
 });
 
+test("failureSignature keys off the real diagnostic, not the build-tool status line", () => {
+  // Two genuinely different Kotlin compile errors under the *same* Gradle task
+  // status line. The old signature hashed `> Task … FAILED` and collapsed both
+  // to one hash, making steady progress look like a stall.
+  const nullability = [
+    "> Task :app:compileDebugKotlin FAILED",
+    "e: file:///p/FeedParserMapper.kt:43:23 Only safe (?.) calls are allowed on a nullable receiver of type 'String?'.",
+    "FAILURE: Build failed with an exception.",
+    "Execution failed for task ':app:compileDebugKotlin'.",
+  ].join("\n");
+  const clash = [
+    "> Task :app:compileDebugKotlin FAILED",
+    "e: file:///p/FeedParserMapper.kt:134:5 Platform declaration clash: same JVM signature.",
+    "FAILURE: Build failed with an exception.",
+    "Execution failed for task ':app:compileDebugKotlin'.",
+  ].join("\n");
+  expect(failureSignature("BUILD", nullability)).not.toBe(failureSignature("BUILD", clash));
+});
+
+test("failureSignature is stable for the same diagnostic at a different location", () => {
+  const a = "> Task :app:compileDebugKotlin FAILED\ne: file:///p/A.kt:43:23 Unresolved reference: foo";
+  const b = "> Task :app:compileDebugKotlin FAILED\ne: file:///p/B.kt:9:1 Unresolved reference: foo";
+  expect(failureSignature("BUILD", a)).toBe(failureSignature("BUILD", b));
+});
+
+test("failureSignature changes as the set of diagnostics shrinks (progress)", () => {
+  const two = ["error: missing dep A", "error: missing dep B"].join("\n");
+  const one = ["error: missing dep B"].join("\n");
+  expect(failureSignature("BUILD", two)).not.toBe(failureSignature("BUILD", one));
+});
+
 test("StuckDetector flags three identical signatures in a row", () => {
   let d = StuckDetector.empty().observe("A");
   expect(d.isStuck()).toBe(false);

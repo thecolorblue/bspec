@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export type IterationOutcome = "attempt" | "rejected";
+export type IterationOutcome = "attempt" | "rejected" | "noop";
 
 export interface IterationRecord {
   readonly iter: number;
@@ -74,6 +74,11 @@ export class Ledger {
     return this.append({ ...record, outcome: "rejected" });
   }
 
+  /** A turn that ran but changed nothing (no edits / no model output). */
+  appendNoop(record: RecordInput): Ledger {
+    return this.append({ ...record, outcome: "noop" });
+  }
+
   /** Terminal: mark the run green and record the final checkpoint. */
   succeed(finalRef: string): Ledger {
     return this.with({ status: "success", finalRef });
@@ -89,10 +94,12 @@ export class Ledger {
     if (this.state.iterations.length === 0) return "nothing yet";
     return this.state.iterations
       .map((r) => {
-        const tag =
-          r.outcome === "rejected"
-            ? `${r.signature}:REJECTED(touched ${(r.violations ?? []).join(", ")})`
-            : r.signature;
+        let tag = r.signature;
+        if (r.outcome === "rejected") {
+          tag = `${r.signature}:REJECTED(touched ${(r.violations ?? []).join(", ")})`;
+        } else if (r.outcome === "noop") {
+          tag = `${r.signature}:NO-OP(no edits)`;
+        }
         return `${r.phase}:${tag}`;
       })
       .join("; ");
@@ -141,7 +148,9 @@ function renderMarkdown(state: LedgerState): string {
       const note =
         r.outcome === "rejected"
           ? `touched ${(r.violations ?? []).join(", ")}`
-          : oneLine(r.summary);
+          : r.outcome === "noop"
+            ? oneLine(r.summary) || "no edits"
+            : oneLine(r.summary);
       lines.push(
         `| ${r.iter} | ${r.phase} | ${r.outcome} | ${r.strategy} | ${r.model ?? "—"} | \`${r.signature}\` | ${r.tokensUsed} | ${note} |`,
       );

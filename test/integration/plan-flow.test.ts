@@ -57,7 +57,8 @@ function greetingPlan(title: string, message?: string): PlannerOutput {
 
 async function installBlocks(): Promise<void> {
   await capture(() =>
-    blocksAdd(HELLO_FIXTURE, {
+    blocksAdd({
+      folder: HELLO_FIXTURE,
       id: "hello-extension",
       version: "0.1.0",
       summary: "A minimal hello extension fixture",

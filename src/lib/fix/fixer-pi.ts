@@ -129,12 +129,18 @@ export class PiFixer implements Fixer {
     }
     const tokensAfter = session.getSessionStats().tokens.total;
 
-    const summary = aborted
-      ? "(aborted: mid-run tool loop detected)"
-      : finalAssistantText(session.messages as unknown as MessageLike[]);
+    const tokensUsed = Math.max(0, tokensAfter - tokensBefore);
+    const text = finalAssistantText(session.messages as unknown as MessageLike[]);
     session.dispose();
 
-    return { tokensUsed: Math.max(0, tokensAfter - tokensBefore), summary };
+    // Surface an empty turn loudly so the controller's no-op guard records a
+    // clear reason instead of a mystery blank row (#4) — e.g. a model that can't
+    // drive tool-enabled edits returns no output and burns no tokens.
+    const summary = aborted
+      ? "(aborted: mid-run tool loop detected)"
+      : text || (tokensUsed === 0 ? "(model produced no output)" : "(no edits made)");
+
+    return { tokensUsed, summary };
   }
 
   /** Resolve a selector to a Pi model that actually has valid auth (mirrors PiPlanner). */

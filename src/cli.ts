@@ -21,13 +21,21 @@ program
 const blocks = program.command("blocks").description("Manage blocks");
 
 blocks
-  .command("add <folder>")
-  .description("Create a single executable block from every file under <folder>")
+  .command("add")
+  .argument("[folder]", "Folder whose contents to snapshot into a block")
+  .description("Create a single executable block from a folder or a single file")
   .requiredOption("--summary <summary>", "One-line summary of the block")
   .option("--id <id>", "Block id (defaults to slugified folder name)")
   .option("--version <version>", "Block version (defaults to 0.1.0)")
+  .option("--file <file>", "Capture a single file instead of a folder")
   .action((folder, opts) =>
-    blocksAdd(folder, { summary: opts.summary, id: opts.id, version: opts.version }),
+    blocksAdd({
+      folder,
+      file: opts.file,
+      summary: opts.summary,
+      id: opts.id,
+      version: opts.version,
+    }),
   );
 
 blocks

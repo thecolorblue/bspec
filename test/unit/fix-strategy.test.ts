@@ -43,3 +43,23 @@ test("pickAlternativeModel returns undefined when no alternative exists", () => 
   expect(pickAlternativeModel("anthropic/claude-opus-4-8", only)).toBeUndefined();
   expect(pickAlternativeModel("anthropic/claude-opus-4-8", [])).toBeUndefined();
 });
+
+test("pickAlternativeModel skips already-tried models", () => {
+  const available = [
+    { provider: "anthropic", id: "claude-haiku-4-5" },
+    { provider: "anthropic", id: "claude-sonnet-4-6" },
+    { provider: "anthropic", id: "claude-opus-4-8" },
+  ];
+  // Current is haiku; sonnet was already tried → opus is the only fresh option.
+  expect(
+    pickAlternativeModel("anthropic/claude-haiku-4-5", available, ["anthropic/claude-sonnet-4-6"]),
+  ).toEqual({ provider: "anthropic", id: "claude-opus-4-8" });
+
+  // Every alternative already tried → none left, so the controller escalates.
+  expect(
+    pickAlternativeModel("anthropic/claude-haiku-4-5", available, [
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-opus-4-8",
+    ]),
+  ).toBeUndefined();
+});

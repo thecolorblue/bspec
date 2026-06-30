@@ -114,14 +114,27 @@ test("(b) an edit to a protected test file is rejected and reverted — no false
 });
 
 test("(c) a no-progress fixer escalates through the ladder to stuck-no-alt-model", async () => {
-  // Edits never satisfy the build gate, and no alternative model is available.
+  // The first turn creates the file; every later turn rewrites identical content,
+  // so the diff is empty — a no-op. No-ops escalate the ladder without consuming
+  // the attempt budget, and with no alternative model the loop hands off.
   const fixer = new FakeFixer([{ edits: [{ path: "noise.txt", content: "x" }] }]);
   const result = await runFixLoop(makeDeps(config({ maxIters: 15 }), fixer, []));
 
   expect(result.status).toBe("escalated");
   expect(result.reason).toBe("stuck-no-alt-model");
-  // The fresh-start rung restored the baseline at least once along the way.
-  expect(result.ledger.state.iterations.length).toBeGreaterThan(0);
+  // No-op turns are recorded distinctly so the handoff log is legible.
+  expect(result.ledger.state.iterations.some((r) => r.outcome === "noop")).toBe(true);
+});
+
+test("(c) a turn that makes no edits at all is a no-op, not a real attempt", async () => {
+  // Tokens were spent but nothing changed on disk — the strongest stuck signal.
+  const fixer = new FakeFixer([{ edits: [], tokensUsed: 500 }]);
+  const result = await runFixLoop(makeDeps(config({ maxIters: 15 }), fixer, []));
+
+  expect(result.status).toBe("escalated");
+  expect(result.ledger.state.iterations.every((r) => r.outcome === "noop")).toBe(true);
+  // None of the no-op turns counted against the iteration budget.
+  expect(result.ledger.state.iterations.some((r) => r.outcome === "attempt")).toBe(false);
 });
 
 test("(d) the token budget is a hard exit", async () => {
@@ -131,12 +144,53 @@ test("(d) the token budget is a hard exit", async () => {
   expect(result.reason).toBe("token-budget");
 });
 
-test("(d) the iteration cap is a hard exit", async () => {
-  const fixer = new FakeFixer([{ edits: [{ path: "noise.txt", content: "x" }] }]);
+test("(d) the iteration cap counts only real (code-changing) attempts", async () => {
+  // Each step touches a distinct file, so every turn is a real attempt.
+  const fixer = new FakeFixer([
+    { edits: [{ path: "a.txt", content: "1" }] },
+    { edits: [{ path: "b.txt", content: "2" }] },
+  ]);
   const result = await runFixLoop(makeDeps(config({ maxIters: 2, tokenBudget: 1_000_000 }), fixer));
   expect(result.status).toBe("escalated");
   expect(result.reason).toBe("iteration-cap");
-  expect(result.ledger.state.iterations.length).toBe(2);
+  const attempts = result.ledger.state.iterations.filter((r) => r.outcome === "attempt");
+  expect(attempts.length).toBe(2);
+});
+
+test("(f) fresh-start does not revert accumulated fixes when no build is green yet", async () => {
+  // Two real, additive edits, then no-ops that climb the ladder into fresh-start.
+  // With no green build to roll back to, the accumulated work must survive (#3).
+  const fixer = new FakeFixer([
+    { edits: [{ path: "keep1.txt", content: "a" }] },
+    { edits: [{ path: "keep2.txt", content: "b" }] },
+    { edits: [] }, // no-op, repeats — drives the ladder to fresh-start and beyond
+  ]);
+  const result = await runFixLoop(makeDeps(config({ maxIters: 15 }), fixer, []));
+
+  expect(result.status).toBe("escalated");
+  // The additive build fixes were NOT thrown away by the fresh-start restore.
+  expect(existsSync(join(project, "keep1.txt"))).toBe(true);
+  expect(existsSync(join(project, "keep2.txt"))).toBe(true);
+});
+
+test("(g) switch-model picks an untried alternative, then hands off cleanly", async () => {
+  const fixer = new FakeFixer([{ edits: [], tokensUsed: 100 }]); // always a no-op
+  const models = [
+    { provider: "anthropic", id: "claude-haiku-4-5" },
+    { provider: "anthropic", id: "claude-opus-4-8" },
+  ];
+  const deps = {
+    ...makeDeps(config({ maxIters: 15 }), fixer, models),
+    initialModel: "anthropic/claude-haiku-4-5",
+  };
+  const result = await runFixLoop(deps);
+
+  expect(result.status).toBe("escalated");
+  expect(result.reason).toBe("no-progress");
+  // The ladder switched to the one untried alternative before giving up.
+  expect(result.ledger.state.iterations.some((r) => r.model === "anthropic/claude-opus-4-8")).toBe(
+    true,
+  );
 });
 
 test("(e) when the build never goes green the test gate is never reached", async () => {

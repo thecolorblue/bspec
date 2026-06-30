@@ -53,7 +53,8 @@ async function writePlan(): Promise<void> {
 
 async function addBlock(): Promise<void> {
   await capture(() =>
-    blocksAdd(FIXTURE, {
+    blocksAdd({
+      folder: FIXTURE,
       id: "hello-extension",
       version: "0.1.0",
       summary: "A minimal hello extension fixture",
@@ -75,6 +76,29 @@ afterEach(async () => {
 test("blocks add creates a single executable block file in BSPEC_HOME", async () => {
   await addBlock();
   expect(existsSync(blockPath("hello-extension", home))).toBe(true);
+});
+
+test("blocks add captures a single file when --file is provided", async () => {
+  const sourceFile = join(project, "single.txt");
+  await writeFile(sourceFile, "Hello from a single file block.");
+
+  await capture(() =>
+    blocksAdd({
+      file: sourceFile,
+      id: "single-file",
+      version: "1.0.0",
+      summary: "Just one file",
+      home,
+    }),
+  );
+
+  const block = blockPath("single-file", home);
+  expect(existsSync(block)).toBe(true);
+  const result = await runBlock(block, ["--manifest"]);
+  expect(result.code).toBe(0);
+  const manifest = JSON.parse(result.stdout);
+  expect(manifest.produces).toEqual(["single.txt"]);
+  expect(manifest.summary).toBe("Just one file");
 });
 
 test("running the generated block with --manifest prints valid JSON", async () => {
