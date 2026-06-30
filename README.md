@@ -38,10 +38,17 @@ Blocks are a combination of code and parameters wrapped into a `.ts` file. They 
 ## Commands
 
 blocks             Manage blocks
+
 plan [options]     Plan an app from <project>/SPEC.md by picking installed blocks (uses Pi)
+
 build [options]    Build the app described by <project>/.bspec/plan.json into dist/
+
 fix [options]      Drive a project's build and test commands to green by letting Pi edit files (uses Pi)
+
 cache              Inspect the output cache
+
 preview [options]  Show the path to dist/ and list produced files
+
 config             Inspect and set bspec configuration
+
 help [command]     display help for command
