@@ -1,7 +1,7 @@
 {
   "name": "bspec",
   "version": "0.0.0",
-  "description": "bspec v0 — block creation and cache reuse proof",
+  "description": "a CLI agent harness, built with Pi and bun, that takes a SPEC.md file and builds a complete functional application.",
   "type": "module",
   "private": true,
   "bin": {
